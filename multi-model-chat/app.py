@@ -2,7 +2,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlparse
 
 from databricks import sql
@@ -157,7 +157,7 @@ def _workspace_hostname() -> str:
     return parsed.hostname or workspace.config.host.replace("https://", "")
 
 
-def _sql_connection(user_access_token: str | None = None):
+def _sql_connection(user_access_token: Optional[str] = None):
     warehouse_id = os.getenv("DATABRICKS_SQL_WAREHOUSE_ID", "").strip()
     if not warehouse_id:
         raise RuntimeError("DATABRICKS_SQL_WAREHOUSE_ID is not configured.")
@@ -198,7 +198,7 @@ def _sql_connection(user_access_token: str | None = None):
     )
 
 
-def _build_usage_rows(days: int, user_access_token: str | None = None) -> dict[str, Any]:
+def _build_usage_rows(days: int, user_access_token: Optional[str] = None) -> dict[str, Any]:
     # system.billing.usage is empty on Databricks Free Edition (no billable DBUs),
     # so we report real per-user/per-model token usage from the serving system tables.
     query = f"""
