@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 from databricks import sql
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sdk.service.serving import ChatMessage as ServingChatMessage
+from databricks.sdk.service.serving import ChatMessageRole
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -264,7 +266,13 @@ async def chat(payload: ChatRequest) -> StreamingResponse:
         response = await asyncio.to_thread(
             workspace.serving_endpoints.query,
             name=payload.model,
-            messages=[message.model_dump() for message in payload.messages],
+            messages=[
+                ServingChatMessage(
+                    role=ChatMessageRole(message.role),
+                    content=message.content,
+                )
+                for message in payload.messages
+            ],
         )
         result = _safe_as_dict(response)
         text = _extract_response_text(result)
