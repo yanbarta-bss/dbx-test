@@ -28,15 +28,15 @@ export type ChatRequestMessage = Pick<ChatMessage, 'role' | 'content'>;
 export type UsageRow = {
   user: string;
   model: string;
-  total_dbus: number;
   request_count: number;
-  estimated_cost: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
 };
 
 export type UsageResponse = {
   rows: UsageRow[];
   message?: string | null;
-  dbuUnitPrice: number;
 };
 
 type StreamHandlers = {

@@ -157,14 +157,17 @@ def _workspace_hostname() -> str:
     return parsed.hostname or workspace.config.host.replace("https://", "")
 
 
-def _sql_connection():
+def _sql_connection(user_access_token: str | None = None):
     warehouse_id = os.getenv("DATABRICKS_SQL_WAREHOUSE_ID", "").strip()
     if not warehouse_id:
         raise RuntimeError("DATABRICKS_SQL_WAREHOUSE_ID is not configured.")
 
     server_hostname = _workspace_hostname()
     http_path = os.getenv("DATABRICKS_SQL_HTTP_PATH", f"/sql/1.0/warehouses/{warehouse_id}")
-    access_token = os.getenv("DATABRICKS_TOKEN")
+    # Prefer the forwarded end-user token (on-behalf-of-user) so system.* tables are
+    # read with the admin's account-admin access; the app service principal cannot be
+    # granted access to the Databricks-owned system catalog.
+    access_token = user_access_token or os.getenv("DATABRICKS_TOKEN")
     client_id = os.getenv("DATABRICKS_CLIENT_ID")
     client_secret = os.getenv("DATABRICKS_CLIENT_SECRET")
 
@@ -195,22 +198,25 @@ def _sql_connection():
     )
 
 
-def _build_usage_rows(days: int) -> dict[str, Any]:
+def _build_usage_rows(days: int, user_access_token: str | None = None) -> dict[str, Any]:
+    # system.billing.usage is empty on Databricks Free Edition (no billable DBUs),
+    # so we report real per-user/per-model token usage from the serving system tables.
     query = f"""
         SELECT
-          identity_metadata.run_by AS user,
-          COALESCE(usage_metadata.ai_gateway.destination_model, usage_metadata.ai_gateway.endpoint_name, 'unknown') AS model,
-          SUM(usage_quantity) AS total_dbus,
-          COUNT(*) AS request_count
-        FROM system.billing.usage
-        WHERE billing_origin_product = 'MODEL_SERVING'
-          AND usage_metadata.ai_gateway.endpoint_name IS NOT NULL
-          AND usage_date >= current_date() - INTERVAL {days} DAYS
+          u.requester AS user,
+          COALESCE(e.endpoint_name, u.served_entity_id) AS model,
+          COUNT(*) AS request_count,
+          SUM(u.input_token_count) AS input_tokens,
+          SUM(u.output_token_count) AS output_tokens,
+          SUM(u.input_token_count + u.output_token_count) AS total_tokens
+        FROM system.serving.endpoint_usage u
+        LEFT JOIN system.serving.served_entities e USING (served_entity_id)
+        WHERE u.request_time >= current_timestamp() - INTERVAL {days} DAYS
         GROUP BY 1, 2
-        ORDER BY total_dbus DESC
+        ORDER BY total_tokens DESC
     """
 
-    with _sql_connection() as connection:
+    with _sql_connection(user_access_token) as connection:
         with connection.cursor() as cursor:
             cursor.execute(query)
             rows = cursor.fetchall()
@@ -219,13 +225,14 @@ def _build_usage_rows(days: int) -> dict[str, Any]:
         {
             "user": row[0],
             "model": row[1],
-            "total_dbus": float(row[2] or 0),
-            "request_count": int(row[3] or 0),
-            "estimated_cost": round(float(row[2] or 0) * default_dbu_price, 4),
+            "request_count": int(row[2] or 0),
+            "input_tokens": int(row[3] or 0),
+            "output_tokens": int(row[4] or 0),
+            "total_tokens": int(row[5] or 0),
         }
         for row in rows
     ]
-    return {"rows": data, "message": None, "dbuUnitPrice": default_dbu_price}
+    return {"rows": data, "message": None}
 
 
 def _chunk_text(text: str, chunk_size: int = 48) -> list[str]:
@@ -314,12 +321,13 @@ def admin_usage(request: Request, days: int = Query(default=30, ge=7, le=365)) -
     if not user["isAdmin"]:
         raise HTTPException(status_code=403, detail="Admin access is required.")
 
+    forwarded_token = request.headers.get("x-forwarded-access-token")
     try:
-        return _build_usage_rows(days)
+        return _build_usage_rows(days, user_access_token=forwarded_token)
     except Exception as exc:
         message = str(exc)
         known_unavailable = (
-            "system.billing.usage",
+            "system.serving.endpoint_usage",
             "TABLE_OR_VIEW_NOT_FOUND",
             "PERMISSION_DENIED",
             "not configured",
@@ -328,8 +336,7 @@ def admin_usage(request: Request, days: int = Query(default=30, ge=7, le=365)) -
         if any(token.lower() in message.lower() for token in known_unavailable):
             return {
                 "rows": [],
-                "message": "Usage data is unavailable. Enable billing system tables and configure the SQL warehouse resource or environment variables for this app.",
-                "dbuUnitPrice": default_dbu_price,
+                "message": "Usage data is unavailable. Ensure the app has the 'sql' user-authorization scope (so your token is forwarded) and that DATABRICKS_SQL_WAREHOUSE_ID is set; the signed-in admin needs access to the system.serving tables.",
             }
         raise HTTPException(status_code=500, detail=f"Failed to load usage data: {exc}") from exc
 

@@ -25,20 +25,12 @@ const cardStyle: CSSProperties = {
 
 const ranges = [7, 30, 90];
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 4,
-  }).format(value);
-}
-
-const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 4 });
+const num = new Intl.NumberFormat('en-US');
 
 function InlineChart({ rows }: { rows: UsageRow[] }) {
   const m = new Map<string, number>();
-  rows.forEach((r) => m.set(r.user, (m.get(r.user) ?? 0) + r.estimated_cost));
-  const data = Array.from(m.entries()).map(([user, cost]) => ({ user, cost: Number(cost.toFixed(4)) })).sort((a, b) => b.cost - a.cost).slice(0, 10);
+  rows.forEach((r) => m.set(r.user, (m.get(r.user) ?? 0) + r.total_tokens));
+  const data = Array.from(m.entries()).map(([user, tokens]) => ({ user, tokens })).sort((a, b) => b.tokens - a.tokens).slice(0, 10);
   return (
     <div style={{ height: 320, width: '100%' }}>
       <ResponsiveContainer>
@@ -46,8 +38,8 @@ function InlineChart({ rows }: { rows: UsageRow[] }) {
           <CartesianGrid stroke="rgba(148,163,184,0.12)" horizontal={false} />
           <XAxis type="number" tick={{ fill: '#94a3b8' }} axisLine={false} tickLine={false} />
           <YAxis dataKey="user" type="category" width={180} tick={{ fill: '#cbd5e1', fontSize: 12 }} axisLine={false} tickLine={false} />
-          <Tooltip cursor={{ fill: 'rgba(148,163,184,0.08)' }} contentStyle={{ background: '#0f172a', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#e2e8f0' }} formatter={(v: number) => [`${v.toFixed(4)}`, 'Cost']} />
-          <Bar dataKey="cost" fill="#38bdf8" radius={[0, 8, 8, 0]} />
+          <Tooltip cursor={{ fill: 'rgba(148,163,184,0.08)' }} contentStyle={{ background: '#0f172a', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#e2e8f0' }} formatter={(v: number) => [num.format(v), 'Total tokens']} />
+          <Bar dataKey="tokens" fill="#38bdf8" radius={[0, 8, 8, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -57,15 +49,16 @@ function InlineChart({ rows }: { rows: UsageRow[] }) {
 function InlineTable({ rows }: { rows: UsageRow[] }) {
   const th: CSSProperties = { padding: '12px 16px', borderBottom: '1px solid rgba(148,163,184,0.16)', color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', textAlign: 'left' };
   const td: CSSProperties = { padding: '14px 16px', borderBottom: '1px solid rgba(148,163,184,0.08)' };
+  const tdNum: CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-        <thead><tr><th style={th}>User</th><th style={th}>Model</th><th style={th}>Requests</th><th style={th}>DBUs</th><th style={th}>Cost</th></tr></thead>
+        <thead><tr><th style={th}>User</th><th style={th}>Model</th><th style={{ ...th, textAlign: 'right' }}>Requests</th><th style={{ ...th, textAlign: 'right' }}>Input tokens</th><th style={{ ...th, textAlign: 'right' }}>Output tokens</th><th style={{ ...th, textAlign: 'right' }}>Total tokens</th></tr></thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.user + r.model}><td style={td}>{r.user}</td><td style={td}>{r.model}</td><td style={td}>{r.request_count}</td><td style={td}>{r.total_dbus.toFixed(4)}</td><td style={td}>{fmt.format(r.estimated_cost)}</td></tr>
+            <tr key={r.user + r.model}><td style={td}>{r.user}</td><td style={td}>{r.model}</td><td style={tdNum}>{num.format(r.request_count)}</td><td style={tdNum}>{num.format(r.input_tokens)}</td><td style={tdNum}>{num.format(r.output_tokens)}</td><td style={tdNum}>{num.format(r.total_tokens)}</td></tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={5} style={{ ...td, textAlign: 'center', color: '#94a3b8' }}>No data for this period.</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={6} style={{ ...td, textAlign: 'center', color: '#94a3b8' }}>No data for this period.</td></tr>}
         </tbody>
       </table>
     </div>
@@ -92,10 +85,11 @@ export default function DashboardPage({ me }: DashboardPageProps) {
     return rows.reduce(
       (acc, row) => ({
         requests: acc.requests + row.request_count,
-        dbus: acc.dbus + row.total_dbus,
-        cost: acc.cost + row.estimated_cost,
+        inputTokens: acc.inputTokens + row.input_tokens,
+        outputTokens: acc.outputTokens + row.output_tokens,
+        totalTokens: acc.totalTokens + row.total_tokens,
       }),
-      { requests: 0, dbus: 0, cost: 0 },
+      { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     );
   }, [usage]);
 
@@ -104,9 +98,9 @@ export default function DashboardPage({ me }: DashboardPageProps) {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#38bdf8' }}>Admin dashboard</div>
-          <h1 style={{ margin: '10px 0 8px', fontSize: 34 }}>Model usage and cost</h1>
+          <h1 style={{ margin: '10px 0 8px', fontSize: 34 }}>Model usage</h1>
           <div style={{ color: '#94a3b8', maxWidth: 880 }}>
-            Real DBUs from <code>system.billing.usage</code> attributed to AI Gateway. Signed in as {me.name}.
+            Real token usage from <code>system.serving.endpoint_usage</code>. Signed in as {me.name}.
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -142,9 +136,10 @@ export default function DashboardPage({ me }: DashboardPageProps) {
 
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         {[
-          { label: 'Requests', value: String(totals.requests) },
-          { label: 'Total DBUs', value: totals.dbus.toFixed(4) },
-          { label: 'Estimated Cost', value: formatCurrency(totals.cost) },
+          { label: 'Requests', value: num.format(totals.requests) },
+          { label: 'Input tokens', value: num.format(totals.inputTokens) },
+          { label: 'Output tokens', value: num.format(totals.outputTokens) },
+          { label: 'Total tokens', value: num.format(totals.totalTokens) },
         ].map(({ label, value }) => (
           <div key={label} style={cardStyle}>
             <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase' }}>{label}</div>
@@ -154,7 +149,7 @@ export default function DashboardPage({ me }: DashboardPageProps) {
       </section>
 
       <section style={{ ...cardStyle, minHeight: 380 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Top users by cost</div>
+        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Top users by tokens</div>
         {loading ? <div style={{ color: '#94a3b8' }}>Loading...</div> : <InlineChart rows={usage?.rows ?? []} />}
       </section>
 
