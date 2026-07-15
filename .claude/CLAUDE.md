@@ -1,0 +1,1 @@
+For databricks CLI use profile free.
