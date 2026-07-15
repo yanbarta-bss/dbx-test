@@ -152,7 +152,13 @@ def _usage_client(user_access_token: Optional[str] = None) -> WorkspaceClient:
     # read with the admin's account-admin access; the app service principal cannot be
     # granted access to the Databricks-owned system catalog on Free Edition.
     if user_access_token:
-        return WorkspaceClient(host=workspace.config.host, token=user_access_token)
+        # Force PAT-only auth: the Apps runtime also exposes service-principal OAuth env
+        # vars, and the SDK errors if it detects both a token and OAuth credentials.
+        return WorkspaceClient(
+            host=workspace.config.host,
+            token=user_access_token,
+            auth_type="pat",
+        )
     return workspace
 
 
