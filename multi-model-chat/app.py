@@ -301,18 +301,23 @@ def admin_usage(request: Request, days: int = Query(default=30, ge=7, le=365)) -
     try:
         return _build_usage_rows(days, user_access_token=forwarded_token)
     except Exception as exc:
-        message = str(exc)
+        message = str(exc).lower()
+        scope_or_consent = "invalid scope" in message or "403" in message or "forbidden" in message
         known_unavailable = (
-            "system.serving.endpoint_usage",
-            "TABLE_OR_VIEW_NOT_FOUND",
-            "PERMISSION_DENIED",
+            "table_or_view_not_found",
+            "permission_denied",
             "not configured",
-            "Unauthorized",
+            "unauthorized",
         )
-        if any(token.lower() in message.lower() for token in known_unavailable):
+        if scope_or_consent:
             return {
                 "rows": [],
-                "message": "Usage data is unavailable. Ensure the app has the 'sql' user-authorization scope (so your token is forwarded) and that DATABRICKS_SQL_WAREHOUSE_ID is set; the signed-in admin needs access to the system.serving tables.",
+                "message": "Usage data is unavailable. Open the app in a browser and approve the authorization prompt for the 'sql' scope so your token can query the usage tables.",
+            }
+        if any(token in message for token in known_unavailable):
+            return {
+                "rows": [],
+                "message": "Usage data is unavailable. Ensure DATABRICKS_SQL_WAREHOUSE_ID is set and the signed-in admin has access to the system.serving tables.",
             }
         raise HTTPException(status_code=500, detail=f"Failed to load usage data: {exc}") from exc
 
