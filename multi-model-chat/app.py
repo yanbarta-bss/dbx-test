@@ -226,7 +226,7 @@ def _chunk_text(text: str, chunk_size: int = 48) -> list[str]:
 
 
 def _sse(payload: dict[str, Any]) -> str:
-    return f"data: {json.dumps(payload)}\\n\\n"
+    return f"data: {json.dumps(payload)}\n\n"
 
 
 @app.get("/api/health")
