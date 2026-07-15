@@ -1,0 +1,6 @@
+command: ["sh", "-c", "cd frontend && npm install && npm run build && cd .. && uvicorn app:app --host 0.0.0.0 --port 8000"]
+env:
+  - name: DATABRICKS_SQL_WAREHOUSE_ID
+    value: ""
+  - name: MODEL_SERVING_DBU_PRICE
+    value: "0.07"

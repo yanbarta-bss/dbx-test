@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["DOM", "DOM.Iterable", "ES2020"],
+    "allowJs": false,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "strict": true,
+    "forceConsistentCasingInFileNames": true,
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx"
+  },
+  "include": ["src"],
+  "exclude": [
+    "src/components/AdminPanel.tsx",
+    "src/components/AdminDashboard.tsx",
+    "src/components/UsageChart.tsx",
+    "src/components/UsageTable.tsx",
+    "src/components/UsageChartPanel.tsx",
+    "src/components/UsageTablePanel.tsx",
+    "src/components/UsageChartView.tsx",
+    "src/components/UsageTableView.tsx",
+    "src/components/ChartComponent.tsx",
+    "src/components/TableComponent.tsx"
+  ],
+  "references": []
+}
