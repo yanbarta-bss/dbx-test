@@ -3,13 +3,11 @@ import json
 import os
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
-from urllib.parse import urlparse
 
-from databricks import sql
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.core import Config, oauth_service_principal
 from databricks.sdk.service.serving import ChatMessage as ServingChatMessage
 from databricks.sdk.service.serving import ChatMessageRole
+from databricks.sdk.service.sql import StatementState
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -149,58 +147,24 @@ def _format_model(endpoint: Any) -> dict[str, str]:
     return {"name": name, "label": label.replace("_", " ").title()}
 
 
-def _workspace_hostname() -> str:
-    server_hostname = os.getenv("DATABRICKS_SERVER_HOSTNAME")
-    if server_hostname:
-        return server_hostname
-    parsed = urlparse(workspace.config.host)
-    return parsed.hostname or workspace.config.host.replace("https://", "")
+def _usage_client(user_access_token: Optional[str] = None) -> WorkspaceClient:
+    # Prefer the forwarded end-user token (on-behalf-of-user) so system.* tables are
+    # read with the admin's account-admin access; the app service principal cannot be
+    # granted access to the Databricks-owned system catalog on Free Edition.
+    if user_access_token:
+        return WorkspaceClient(host=workspace.config.host, token=user_access_token)
+    return workspace
 
 
-def _sql_connection(user_access_token: Optional[str] = None):
+def _build_usage_rows(days: int, user_access_token: Optional[str] = None) -> dict[str, Any]:
     warehouse_id = os.getenv("DATABRICKS_SQL_WAREHOUSE_ID", "").strip()
     if not warehouse_id:
         raise RuntimeError("DATABRICKS_SQL_WAREHOUSE_ID is not configured.")
 
-    server_hostname = _workspace_hostname()
-    http_path = os.getenv("DATABRICKS_SQL_HTTP_PATH", f"/sql/1.0/warehouses/{warehouse_id}")
-    # Prefer the forwarded end-user token (on-behalf-of-user) so system.* tables are
-    # read with the admin's account-admin access; the app service principal cannot be
-    # granted access to the Databricks-owned system catalog.
-    access_token = user_access_token or os.getenv("DATABRICKS_TOKEN")
-    client_id = os.getenv("DATABRICKS_CLIENT_ID")
-    client_secret = os.getenv("DATABRICKS_CLIENT_SECRET")
-
-    if access_token:
-        return sql.connect(
-            server_hostname=server_hostname,
-            http_path=http_path,
-            access_token=access_token,
-        )
-
-    if client_id and client_secret:
-        def credential_provider():
-            config = Config(
-                host=f"https://{server_hostname}",
-                client_id=client_id,
-                client_secret=client_secret,
-            )
-            return oauth_service_principal(config)
-
-        return sql.connect(
-            server_hostname=server_hostname,
-            http_path=http_path,
-            credentials_provider=credential_provider,
-        )
-
-    raise RuntimeError(
-        "Databricks SQL authentication is not configured for this app. Set DATABRICKS_CLIENT_ID and DATABRICKS_CLIENT_SECRET, or provide DATABRICKS_TOKEN."
-    )
-
-
-def _build_usage_rows(days: int, user_access_token: Optional[str] = None) -> dict[str, Any]:
     # system.billing.usage is empty on Databricks Free Edition (no billable DBUs),
     # so we report real per-user/per-model token usage from the serving system tables.
+    # Queries run over the Statement Execution REST API (the Thrift SQL connector cannot
+    # open a session from the Databricks Apps runtime).
     query = f"""
         SELECT
           u.requester AS user,
@@ -216,11 +180,17 @@ def _build_usage_rows(days: int, user_access_token: Optional[str] = None) -> dic
         ORDER BY total_tokens DESC
     """
 
-    with _sql_connection(user_access_token) as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            rows = cursor.fetchall()
+    client = _usage_client(user_access_token)
+    response = client.statement_execution.execute_statement(
+        warehouse_id=warehouse_id,
+        statement=query,
+        wait_timeout="50s",
+    )
+    if response.status.state != StatementState.SUCCEEDED:
+        error = response.status.error
+        raise RuntimeError(error.message if error else f"Statement {response.status.state}")
 
+    rows = (response.result.data_array if response.result else None) or []
     data = [
         {
             "user": row[0],
