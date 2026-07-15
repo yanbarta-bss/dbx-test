@@ -4,3 +4,5 @@ env:
     value: ""
   - name: MODEL_SERVING_DBU_PRICE
     value: "0.07"
+  - name: ADMIN_USERS
+    value: "yan.barta@blindspot.ai"

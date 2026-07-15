@@ -18,6 +18,7 @@ app = FastAPI(title="Multi Model Chat")
 workspace = WorkspaceClient()
 frontend_dist = Path(__file__).parent / "frontend" / "dist"
 default_dbu_price = float(os.getenv("MODEL_SERVING_DBU_PRICE", "0.07"))
+admin_users = {user.strip().lower() for user in os.getenv("ADMIN_USERS", "").split(",") if user.strip()}
 
 
 class ChatMessage(BaseModel):
@@ -42,11 +43,17 @@ def _user_from_request(request: Request) -> dict[str, Any]:
     groups = [group.strip() for group in groups_raw.split(",") if group.strip()]
     lowered = {group.lower() for group in groups}
     preferred_name = request.headers.get("x-forwarded-preferred-username") or email.split("@")[0]
+    is_admin = (
+        "admin" in lowered
+        or "admins" in lowered
+        or email.lower() in admin_users
+        or preferred_name.lower() in admin_users
+    )
     return {
         "email": email,
         "name": preferred_name,
         "groups": groups,
-        "isAdmin": "admin" in lowered or "admins" in lowered,
+        "isAdmin": is_admin,
     }
 
 
