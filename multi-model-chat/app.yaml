@@ -1,8 +1,37 @@
+# CI builds frontend/dist and the cleaner path is to ship it and just run uvicorn. Until CI
+# is wired, we build at boot so a plain `databricks sync` (which gitignores dist) still works.
 command: ["sh", "-c", "cd frontend && npm install --include=dev && npm run build && cd .. && uvicorn app:app --host 0.0.0.0 --port ${DATABRICKS_APP_PORT:-8000}"]
 env:
+  # --- existing ---
   - name: DATABRICKS_SQL_WAREHOUSE_ID
     value: "51d1c7812d68bd92"
   - name: MODEL_SERVING_DBU_PRICE
     value: "0.07"
   - name: ADMIN_USERS
     value: "yan.barta@blindspot.ai"
+  # Only surface endpoints that are actually enabled on this workspace.
+  - name: MODEL_ALLOWLIST
+    value: "llama,gpt-oss"
+  # --- AI Gateway governance (Feature 1) ---
+  # Endpoint to inspect for gateway status; blank = scan all endpoints.
+  - name: AI_GATEWAY_ENDPOINT
+    value: "databricks-gpt-oss-20b"
+  # Set to the primary served-entity name to light up the fallback banner in the demo.
+  - name: AI_GATEWAY_PRIMARY_ENTITY
+    value: ""
+  # --- MLflow tracing + LLM-as-judge (Feature 3) ---
+  - name: MLFLOW_EXPERIMENT
+    value: ""
+  - name: ENABLE_EVAL
+    value: "false"
+  - name: JUDGE_MODEL
+    value: ""
+  # --- Lakebase persistent history (Feature 2) ---
+  - name: LAKEBASE_INSTANCE_NAME
+    value: ""
+  - name: LAKEBASE_HOST
+    value: ""
+  - name: LAKEBASE_DATABASE
+    value: "databricks_postgres"
+  - name: LAKEBASE_USER
+    value: ""

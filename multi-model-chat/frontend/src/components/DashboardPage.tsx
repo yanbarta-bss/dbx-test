@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { getUsage, type MeResponse, type UsageResponse, type UsageRow } from '../api';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { getUsage, type MeResponse, type UsageResponse } from '../api';
+import ChartComponent from './ChartComponent';
+import TableComponent from './TableComponent';
 
 type DashboardPageProps = {
   me: MeResponse;
@@ -26,44 +27,7 @@ const cardStyle: CSSProperties = {
 const ranges = [7, 30, 90];
 
 const num = new Intl.NumberFormat('en-US');
-
-function InlineChart({ rows }: { rows: UsageRow[] }) {
-  const m = new Map<string, number>();
-  rows.forEach((r) => m.set(r.user, (m.get(r.user) ?? 0) + r.total_tokens));
-  const data = Array.from(m.entries()).map(([user, tokens]) => ({ user, tokens })).sort((a, b) => b.tokens - a.tokens).slice(0, 10);
-  return (
-    <div style={{ height: 320, width: '100%' }}>
-      <ResponsiveContainer>
-        <BarChart data={data} layout="vertical" margin={{ top: 8, right: 24, left: 12, bottom: 8 }}>
-          <CartesianGrid stroke="rgba(148,163,184,0.12)" horizontal={false} />
-          <XAxis type="number" tick={{ fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-          <YAxis dataKey="user" type="category" width={180} tick={{ fill: '#cbd5e1', fontSize: 12 }} axisLine={false} tickLine={false} />
-          <Tooltip cursor={{ fill: 'rgba(148,163,184,0.08)' }} contentStyle={{ background: '#0f172a', border: '1px solid rgba(148,163,184,0.2)', borderRadius: 12, color: '#e2e8f0' }} formatter={(v: number) => [num.format(v), 'Total tokens']} />
-          <Bar dataKey="tokens" fill="#38bdf8" radius={[0, 8, 8, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-function InlineTable({ rows }: { rows: UsageRow[] }) {
-  const th: CSSProperties = { padding: '12px 16px', borderBottom: '1px solid rgba(148,163,184,0.16)', color: '#94a3b8', fontSize: 12, textTransform: 'uppercase', textAlign: 'left' };
-  const td: CSSProperties = { padding: '14px 16px', borderBottom: '1px solid rgba(148,163,184,0.08)' };
-  const tdNum: CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
-        <thead><tr><th style={th}>User</th><th style={th}>Model</th><th style={{ ...th, textAlign: 'right' }}>Requests</th><th style={{ ...th, textAlign: 'right' }}>Input tokens</th><th style={{ ...th, textAlign: 'right' }}>Output tokens</th><th style={{ ...th, textAlign: 'right' }}>Total tokens</th></tr></thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.user + r.model}><td style={td}>{r.user}</td><td style={td}>{r.model}</td><td style={tdNum}>{num.format(r.request_count)}</td><td style={tdNum}>{num.format(r.input_tokens)}</td><td style={tdNum}>{num.format(r.output_tokens)}</td><td style={tdNum}>{num.format(r.total_tokens)}</td></tr>
-          ))}
-          {rows.length === 0 && <tr><td colSpan={6} style={{ ...td, textAlign: 'center', color: '#94a3b8' }}>No data for this period.</td></tr>}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+const usd = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 
 export default function DashboardPage({ me }: DashboardPageProps) {
   const [days, setDays] = useState<number>(30);
@@ -85,22 +49,46 @@ export default function DashboardPage({ me }: DashboardPageProps) {
     return rows.reduce(
       (acc, row) => ({
         requests: acc.requests + row.request_count,
-        inputTokens: acc.inputTokens + row.input_tokens,
-        outputTokens: acc.outputTokens + row.output_tokens,
         totalTokens: acc.totalTokens + row.total_tokens,
+        totalDbus: acc.totalDbus + row.total_dbus,
+        estimatedCost: acc.estimatedCost + row.estimated_cost,
       }),
-      { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      { requests: 0, totalTokens: 0, totalDbus: 0, estimatedCost: 0 },
     );
   }, [usage]);
+
+  const evalSummary = usage?.eval_summary ?? null;
 
   return (
     <div style={pageStyle}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.12em', color: '#38bdf8' }}>Admin dashboard</div>
-          <h1 style={{ margin: '10px 0 8px', fontSize: 34 }}>Model usage</h1>
-          <div style={{ color: '#94a3b8', maxWidth: 880 }}>
-            Real token usage from <code>system.serving.endpoint_usage</code>. Signed in as {me.name}.
+          <h1 style={{ margin: '10px 0 8px', fontSize: 34 }}>Model usage &amp; governance</h1>
+          <div style={{ color: '#94a3b8', maxWidth: 880, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span>
+              Real token usage from <code>system.serving.endpoint_usage</code>. Signed in as {me.name}.
+            </span>
+            {usage ? (
+              <span
+                title={`DBU price ${usd.format(usage.dbu_price)}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  borderRadius: 999,
+                  padding: '4px 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: usage.governed_by_gateway ? '#bbf7d0' : '#fcd34d',
+                  background: usage.governed_by_gateway ? 'rgba(22, 101, 52, 0.35)' : 'rgba(120, 53, 15, 0.3)',
+                  border: `1px solid ${usage.governed_by_gateway ? 'rgba(74, 222, 128, 0.4)' : 'rgba(252, 211, 77, 0.35)'}`,
+                }}
+              >
+                {usage.governed_by_gateway ? '● Governed by AI Gateway' : '○ AI Gateway not detected'}
+                <span style={{ opacity: 0.7 }}>· DBU {usd.format(usage.dbu_price)}</span>
+              </span>
+            ) : null}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -137,9 +125,9 @@ export default function DashboardPage({ me }: DashboardPageProps) {
       <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
         {[
           { label: 'Requests', value: num.format(totals.requests) },
-          { label: 'Input tokens', value: num.format(totals.inputTokens) },
-          { label: 'Output tokens', value: num.format(totals.outputTokens) },
           { label: 'Total tokens', value: num.format(totals.totalTokens) },
+          { label: 'Total DBUs (est.)', value: totals.totalDbus.toFixed(2) },
+          { label: 'Estimated cost', value: usd.format(totals.estimatedCost) },
         ].map(({ label, value }) => (
           <div key={label} style={cardStyle}>
             <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase' }}>{label}</div>
@@ -148,14 +136,41 @@ export default function DashboardPage({ me }: DashboardPageProps) {
         ))}
       </section>
 
-      <section style={{ ...cardStyle, minHeight: 380 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Top users by tokens</div>
-        {loading ? <div style={{ color: '#94a3b8' }}>Loading...</div> : <InlineChart rows={usage?.rows ?? []} />}
+      {evalSummary ? (
+        <section style={cardStyle}>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Quality (MLflow eval)</div>
+          <div style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>
+            LLM-as-judge scores over {evalSummary.sample_count} recent {evalSummary.sample_count === 1 ? 'answer' : 'answers'}.
+          </div>
+          <div style={{ display: 'flex', gap: 28, flexWrap: 'wrap' }}>
+            {[
+              { label: 'Relevance', value: evalSummary.avg_relevance },
+              { label: 'Safety', value: evalSummary.avg_safety },
+              { label: 'Groundedness', value: evalSummary.avg_groundedness },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <div style={{ color: '#94a3b8', fontSize: 12, textTransform: 'uppercase' }}>{label}</div>
+                <div style={{ fontSize: 26, fontWeight: 700, marginTop: 6, color: '#a5b4fc' }}>{value.toFixed(2)}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: 16 }}>
+        <div style={{ ...cardStyle, minHeight: 380 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Top users by tokens</div>
+          {loading ? <div style={{ color: '#94a3b8' }}>Loading...</div> : <ChartComponent rows={usage?.rows ?? []} metric="total_tokens" />}
+        </div>
+        <div style={{ ...cardStyle, minHeight: 380 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>Top users by cost</div>
+          {loading ? <div style={{ color: '#94a3b8' }}>Loading...</div> : <ChartComponent rows={usage?.rows ?? []} metric="estimated_cost" />}
+        </div>
       </section>
 
       <section style={cardStyle}>
         <div style={{ fontSize: 20, fontWeight: 700, marginBottom: 16 }}>User and model breakdown</div>
-        {loading ? <div style={{ color: '#94a3b8' }}>Loading...</div> : <InlineTable rows={usage?.rows ?? []} />}
+        {loading ? <div style={{ color: '#94a3b8' }}>Loading...</div> : <TableComponent rows={usage?.rows ?? []} showCost />}
       </section>
     </div>
   );

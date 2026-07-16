@@ -1,3 +1,9 @@
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
-databricks-sdk>=0.40.0
+# databricks-sdk >= 0.89.0 adds workspace.database.generate_database_credential (Lakebase).
+databricks-sdk>=0.89.0
+# Lakebase persistence (Feature 2): standard Postgres driver, OAuth token used as password.
+psycopg[binary]>=3.1
+# MLflow tracing (Feature 3). mlflow-skinny ships the tracing SDK and keeps the app image
+# lean; swap to full `mlflow` only if you run offline mlflow.genai.evaluate jobs.
+mlflow-skinny>=3.4

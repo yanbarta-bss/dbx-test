@@ -17,17 +17,6 @@
     "jsx": "react-jsx"
   },
   "include": ["src"],
-  "exclude": [
-    "src/components/AdminPanel.tsx",
-    "src/components/AdminDashboard.tsx",
-    "src/components/UsageChart.tsx",
-    "src/components/UsageTable.tsx",
-    "src/components/UsageChartPanel.tsx",
-    "src/components/UsageTablePanel.tsx",
-    "src/components/UsageChartView.tsx",
-    "src/components/UsageTableView.tsx",
-    "src/components/ChartComponent.tsx",
-    "src/components/TableComponent.tsx"
-  ],
+  "exclude": [],
   "references": []
 }

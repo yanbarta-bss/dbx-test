@@ -1,0 +1,63 @@
+# Databricks Asset Bundle for the multi-model-chat POC.
+#
+# Makes the whole POC reproducible dev -> staging and declares the resources the three
+# features depend on, closing the two gaps the app previously had:
+#   * app resource grants (SQL warehouse) + user-authorization `sql` scope for the
+#     on-behalf-of-user usage query, and
+#   * a Lakebase database instance + an MLflow experiment.
+#
+# IMPORTANT: DABs resource keys evolve across CLI versions. Run `databricks bundle validate`
+# and reconcile any key the validator rejects (notably `database_instances`, `experiments`,
+# and the app `resources`/scopes block) before deploying.
+#
+# Deploy:   databricks bundle deploy --target dev
+# Gateway:  after deploy, run `python gateway_config.py --endpoint <name>` (put_ai_gateway
+#           is applied out-of-band; it is not a first-class bundle resource).
+
+bundle:
+  name: multi-model-chat
+
+variables:
+  warehouse_id:
+    description: SQL warehouse id backing the usage dashboard.
+    default: "51d1c7812d68bd92"
+  lakebase_instance:
+    description: Lakebase (serverless Postgres) database instance name.
+    default: ""
+  mlflow_experiment:
+    description: Workspace path of the MLflow experiment for chat traces.
+    default: /Shared/multi-model-chat-poc
+
+resources:
+  apps:
+    multi_model_chat:
+      name: multi-model-chat
+      description: Multi-model chat — AI Gateway + Lakebase + MLflow POC.
+      source_code_path: ./
+      # Grants + OBO scope. Verify the exact shape with `databricks bundle validate`.
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+      user_authorization:
+        scopes:
+          - sql
+
+  database_instances:
+    lakebase:
+      name: ${var.lakebase_instance}
+      capacity: CU_1
+
+  experiments:
+    mmc_experiment:
+      name: ${var.mlflow_experiment}
+
+targets:
+  dev:
+    mode: development
+    default: true
+  staging:
+    mode: production
+    variables:
+      mlflow_experiment: /Shared/multi-model-chat-staging
